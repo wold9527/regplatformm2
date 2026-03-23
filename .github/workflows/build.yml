@@ -1,0 +1,366 @@
+name: Build & Push Docker Images
+
+on:
+  push:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/regplatformm2
+
+jobs:
+  # ── 主应用（Go + Vue 前端）──────────────────────────────────────────────
+  build-app:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}:latest
+            ${{ env.IMAGE_PREFIX }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── 可选本地 Worker 镜像（NAS/单机部署可直接 pull）──────────────────────
+  build-turnstile-solver-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: services/turnstile-solver
+          file: services/turnstile-solver/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-turnstile-solver:latest
+            ${{ env.IMAGE_PREFIX }}-turnstile-solver:${{ github.sha }}
+          cache-from: type=gha,scope=turnstile-solver
+          cache-to: type=gha,mode=max,scope=turnstile-solver
+
+  build-aws-builder-id-reg-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: services/aws-builder-id-reg
+          file: services/aws-builder-id-reg/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-aws-builder-id-reg:latest
+            ${{ env.IMAGE_PREFIX }}-aws-builder-id-reg:${{ github.sha }}
+          cache-from: type=gha,scope=aws-builder-id-reg
+          cache-to: type=gha,mode=max,scope=aws-builder-id-reg
+
+  # ── HF Space 服务 A ──────────────────────────────────────────────────────
+  build-openai-worker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o inference-runtime ./cmd/openai-worker
+
+      - run: zip inference-runtime.zip inference-runtime
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: inference-runtime-latest
+          name: Inference Runtime (Auto Build)
+          files: inference-runtime.zip
+          prerelease: true
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── HF Space 服务 B ──────────────────────────────────────────────────────
+  build-grok-worker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o stream-worker ./cmd/grok-worker
+
+      - run: zip stream-worker.zip stream-worker
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: stream-worker-latest
+          name: Stream Worker (Auto Build)
+          files: stream-worker.zip
+          prerelease: true
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── HF Space 服务 C（Kiro 注册 browser-agent）───────────────────────────
+  build-kiro-reg:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: |
+          cd services/aws-builder-id-reg
+          zip ../../browser-agent.zip server.py requirements.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: browser-agent-latest
+          name: Browser Agent (Auto Build)
+          files: browser-agent.zip
+          prerelease: true
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── HF Space 服务 D（Gemini 注册 gemini-agent）────────────────────────────
+  build-gemini-reg:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: |
+          cd services/aws-builder-id-reg
+          zip ../../gemini-agent.zip server.py requirements.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: gemini-agent-latest
+          name: Gemini Agent (Auto Build)
+          files: gemini-agent.zip
+          prerelease: true
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── HF Space 服务 E ──────────────────────────────────────────────────────
+  build-ts-solver:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: |
+          cd services/turnstile-solver
+          zip ../../net-toolkit.zip api_solver.py browser_configs.py db_results.py requirements.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: net-toolkit-latest
+          name: Net Toolkit (Auto Build)
+          files: net-toolkit.zip
+          prerelease: true
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── 以下服务仍需自行构建或使用 HF Space ────────────────────────────────
+  # cf-bypass-solver / openai-reg / camoufox-reg 未随本仓库发布 GHCR 镜像
+
+  # ── Mac Mini 完整镜像（5 个服务）─────────────────────────────────────────
+  build-macmini-openai:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: HFNP/Dockerfile.full
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-openai:latest
+            ${{ env.IMAGE_PREFIX }}-openai:${{ github.sha }}
+          cache-from: type=gha,scope=macmini-openai
+          cache-to: type=gha,mode=max,scope=macmini-openai
+
+  build-macmini-grok:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: HFGS/Dockerfile.full
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-grok:latest
+            ${{ env.IMAGE_PREFIX }}-grok:${{ github.sha }}
+          cache-from: type=gha,scope=macmini-grok
+          cache-to: type=gha,mode=max,scope=macmini-grok
+
+  build-macmini-kiro:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: HFKR/Dockerfile.full
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-kiro:latest
+            ${{ env.IMAGE_PREFIX }}-kiro:${{ github.sha }}
+          cache-from: type=gha,scope=macmini-kiro
+          cache-to: type=gha,mode=max,scope=macmini-kiro
+
+  build-macmini-gemini:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: HFGM/Dockerfile.full
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-gemini:latest
+            ${{ env.IMAGE_PREFIX }}-gemini:${{ github.sha }}
+          cache-from: type=gha,scope=macmini-gemini
+          cache-to: type=gha,mode=max,scope=macmini-gemini
+
+  build-macmini-ts:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: HFTS/Dockerfile.full
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}-ts:latest
+            ${{ env.IMAGE_PREFIX }}-ts:${{ github.sha }}
+          cache-from: type=gha,scope=macmini-ts
+          cache-to: type=gha,mode=max,scope=macmini-ts
+
+  # ── Cloudflare Worker 自动部署 ─────────────────────────────────────────
+  deploy-cf-worker:
+    runs-on: ubuntu-latest
+    needs: build-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          workingDirectory: cloudflare
+          wranglerVersion: "4"
+          command: deploy

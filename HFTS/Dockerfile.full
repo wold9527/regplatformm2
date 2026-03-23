@@ -1,0 +1,40 @@
+# Mac Mini 完整镜像：Turnstile Solver（无混淆，直接内置业务代码）
+FROM python:3.10-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    xvfb xauth dbus-x11 \
+    libgtk-3-0 libdbus-glib-1-2 libxt6 libx11-xcb1 \
+    libasound2 libglib2.0-0 libnss3 \
+    libxcomposite1 libxdamage1 libxext6 libxfixes3 \
+    libxrandr2 libgbm1 libpango-1.0-0 libcairo2 \
+    fonts-liberation fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/app
+
+# 安装 Python 依赖（直接用原始包名）
+RUN pip install --no-cache-dir \
+    "quart>=0.19" "patchright>=0.5" "rich>=13.0" \
+    "camoufox[geoip]" "pysocks" "beautifulsoup4" "curl_cffi" \
+    "python-dotenv" "setuptools" "aiosqlite"
+
+# 拉取浏览器二进制
+RUN python3 -m camoufox fetch && \
+    python3 -m patchright install chromium
+
+# 内置业务代码
+COPY services/proxy_chain.py /opt/app/proxy_chain.py
+COPY services/turnstile-solver/api_solver.py /opt/app/app.py
+COPY services/turnstile-solver/browser_configs.py /opt/app/browser_configs.py
+COPY services/turnstile-solver/db_results.py /opt/app/db_results.py
+
+# 入口脚本
+COPY HFTS/run-full.sh /opt/app/run-full.sh
+RUN chmod +x /opt/app/run-full.sh
+
+ENV DISPLAY=:99
+ENV PYTHONUNBUFFERED=1
+ENV SVC_ARGS="--host 0.0.0.0 --port 7860 --browser_type camoufox --no-headless --thread 2"
+EXPOSE 7860
+
+CMD ["/opt/app/run-full.sh"]

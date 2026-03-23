@@ -1,0 +1,111 @@
+# 生产环境 docker-compose（使用 GitHub Actions 预构建镜像）
+# 服务器部署：docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d
+
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: regplatform
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    image: ${APP_IMAGE:-ghcr.io/wold9527/regplatformm2:latest}
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - xray-config:/etc/xray
+    environment:
+      DATABASE_URL: postgres://postgres:${DB_PASSWORD:-postgres}@db:5432/regplatform?sslmode=disable
+      GIN_MODE: release
+      DEV_MODE: "false"
+      TURNSTILE_SOLVER_URL: ${TURNSTILE_SOLVER_URL:-}
+      CF_BYPASS_SOLVER_URL: ${CF_BYPASS_SOLVER_URL:-}
+      CAMOUFOX_REG_URL: ${CAMOUFOX_REG_URL:-}
+      XRAY_CONFIG_DIR: /etc/xray
+      XRAY_CONTAINER_NAME: ${XRAY_CONTAINER_NAME:-xray}
+      DOCKER_SOCKET: /var/run/docker.sock
+    env_file:
+      - .env
+
+  xray:
+    image: ${XRAY_IMAGE:-teddysun/xray:latest}
+    container_name: xray
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - xray-config:/etc/xray:ro
+    profiles:
+      - proxy
+
+  turnstile-solver:
+    image: ${TURNSTILE_SOLVER_IMAGE:-ghcr.io/wold9527/regplatformm2-turnstile-solver:latest}
+    restart: unless-stopped
+    ports:
+      - "5072:5072"
+    environment:
+      SOLVER_BROWSER_TYPE: camoufox
+      SOLVER_THREADS: "2"
+      SOLVER_PORT: "5072"
+    profiles:
+      - worker
+
+  cf-bypass-solver:
+    image: ${CF_BYPASS_SOLVER_IMAGE:-ghcr.io/wold9527/regplatformm2-cf-bypass-solver:latest}
+    restart: unless-stopped
+    ports:
+      - "5073:5073"
+    profiles:
+      - worker
+
+  openai-reg:
+    image: ${OPENAI_REG_IMAGE:-ghcr.io/wold9527/regplatformm2-openai-reg:latest}
+    restart: unless-stopped
+    ports:
+      - "5075:5075"
+    environment:
+      OPENAI_REG_PORT: "5075"
+      GPTMAIL_BASE_URL: "https://mail.chatgpt.org.uk"
+    profiles:
+      - worker
+
+  aws-builder-id-reg:
+    image: ${AWS_BUILDER_ID_REG_IMAGE:-ghcr.io/wold9527/regplatformm2-aws-builder-id-reg:latest}
+    restart: unless-stopped
+    ports:
+      - "5076:5076"
+    environment:
+      KIRO_REG_PORT: "5076"
+    shm_size: '2gb'
+    profiles:
+      - worker
+
+  camoufox-reg:
+    image: ${CAMOUFOX_REG_IMAGE:-ghcr.io/wold9527/regplatformm2-camoufox-reg:latest}
+    restart: unless-stopped
+    ports:
+      - "5074:5074"
+    profiles:
+      - worker
+      - browser-mode
+
+volumes:
+  pgdata:
+  xray-config:

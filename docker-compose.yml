@@ -1,0 +1,106 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: regplatform
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - xray-config:/etc/xray
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/regplatform?sslmode=disable
+      GIN_MODE: release
+      DEV_MODE: "true"
+      TURNSTILE_SOLVER_URL: http://turnstile-solver:5072
+      CF_BYPASS_SOLVER_URL: http://cf-bypass-solver:5073
+      CAMOUFOX_REG_URL: ""
+      XRAY_CONFIG_DIR: /etc/xray
+      XRAY_CONTAINER_NAME: xray
+      DOCKER_SOCKET: /var/run/docker.sock
+    env_file:
+      - .env
+
+  # Xray 隧道桥接 — 将 vless/vmess/trojan/ss/hy2 转为本地 socks5
+  xray:
+    image: teddysun/xray:latest
+    container_name: xray
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - xray-config:/etc/xray:ro
+
+  # Turnstile Solver — Camoufox 模式
+  turnstile-solver:
+    build:
+      context: ./services/turnstile-solver
+      dockerfile: Dockerfile
+    ports:
+      - "5072:5072"
+    environment:
+      SOLVER_BROWSER_TYPE: camoufox
+      SOLVER_THREADS: "2"
+      SOLVER_PORT: "5072"
+
+  # CF-Bypass Solver — SeleniumBase UC Mode（备用）
+  cf-bypass-solver:
+    build:
+      context: ./services/cf-bypass-solver
+      dockerfile: Dockerfile
+    ports:
+      - "5073:5073"
+
+  # OpenAI 浏览器注册服务（SeleniumBase UC Mode）
+  openai-reg:
+    build:
+      context: ./services/openai-reg
+      dockerfile: Dockerfile
+    ports:
+      - "5075:5075"
+    environment:
+      OPENAI_REG_PORT: "5075"
+      GPTMAIL_BASE_URL: "https://mail.chatgpt.org.uk"
+
+  # Camoufox 浏览器注册服务（按需启用，默认不启动）
+  camoufox-reg:
+    build:
+      context: ./services/camoufox-reg
+      dockerfile: Dockerfile
+    ports:
+      - "5074:5074"
+    profiles:
+      - browser-mode
+
+  # AWS Builder ID (Kiro) 浏览器注册服务
+  aws-builder-id-reg:
+    build:
+      context: ./services/aws-builder-id-reg
+      dockerfile: Dockerfile
+    ports:
+      - "5076:5076"
+    environment:
+      KIRO_REG_PORT: "5076"
+    shm_size: '2gb'
+
+volumes:
+  pgdata:
+  xray-config:

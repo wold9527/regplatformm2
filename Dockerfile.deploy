@@ -1,0 +1,11 @@
+# 轻量运行时镜像（直接用预编译产物）
+FROM alpine:3.19
+RUN apk --no-cache add ca-certificates tzdata
+WORKDIR /app
+COPY regplatform-linux ./regplatform
+COPY web/dist ./web/dist
+RUN chmod +x ./regplatform
+
+ENV TZ=Asia/Shanghai
+EXPOSE 8000
+CMD ["./regplatform"]

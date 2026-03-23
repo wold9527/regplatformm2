@@ -1,0 +1,4 @@
+quart>=0.19
+camoufox[geoip]>=0.4
+patchright>=0.5
+rich>=13.0

@@ -1,0 +1,132 @@
+services:
+
+  hfkr:
+    image: ghcr.io/xiaolajiaoyyds/regplatformm-kiro:latest
+    platform: linux/amd64
+    container_name: hfkr
+    ports:
+      - "7861:7860"
+    environment:
+      - KIRO_MAX_CONCURRENT=6
+      - HTTPS_PROXY=http://host.docker.internal:${CLASH_PORT:-7890}
+      - HTTP_PROXY=http://host.docker.internal:${CLASH_PORT:-7890}
+      - NO_PROXY=localhost,127.0.0.1,host.docker.internal,hfkr,hfts,hfnp,hfgs,hfgm,hfgm
+    shm_size: "2g"
+    deploy:
+      resources:
+        limits:
+          cpus: "3.0"
+          memory: 5120M
+        reservations:
+          memory: 1536M
+    restart: unless-stopped
+
+  hfgm:
+    image: ghcr.io/xiaolajiaoyyds/regplatformm-gemini:latest
+    platform: linux/amd64
+    container_name: hfgm
+    ports:
+      - "7865:7860"
+    environment:
+      - GEMINI_MAX_CONCURRENT=2
+      - KIRO_MAX_CONCURRENT=0
+      - HTTPS_PROXY=http://host.docker.internal:${CLASH_PORT:-7890}
+      - HTTP_PROXY=http://host.docker.internal:${CLASH_PORT:-7890}
+      - NO_PROXY=localhost,127.0.0.1,host.docker.internal,hfkr,hfts,hfnp,hfgs,hfgm,hfgm
+    shm_size: "2g"
+    deploy:
+      resources:
+        limits:
+          cpus: "3.0"
+          memory: 5120M
+        reservations:
+          memory: 1536M
+    restart: unless-stopped
+
+  hfts:
+    image: ghcr.io/xiaolajiaoyyds/regplatformm-ts:latest
+    platform: linux/amd64
+    container_name: hfts
+    ports:
+      - "7862:7860"
+    environment:
+      - SVC_ARGS=--host 0.0.0.0 --port 7860 --browser_type camoufox --no-headless --thread 6
+      - HTTPS_PROXY=http://host.docker.internal:${CLASH_PORT:-7890}
+      - HTTP_PROXY=http://host.docker.internal:${CLASH_PORT:-7890}
+      - NO_PROXY=localhost,127.0.0.1,host.docker.internal,hfkr,hfts,hfnp,hfgs,hfgm
+    volumes:
+      - ./hfts-patches/app.py:/opt/app/app.py:ro
+      - ./hfts-patches/run-full.sh:/opt/app/run-full.sh:ro
+    shm_size: "2g"
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 6144M
+        reservations:
+          memory: 2048M
+    restart: unless-stopped
+
+  hfnp:
+    image: ghcr.io/xiaolajiaoyyds/regplatformm-openai:latest
+    platform: linux/amd64
+    container_name: hfnp
+    ports:
+      - "7863:7860"
+    environment:
+      - MAX_CONCURRENT=3
+      - MAX_QUEUE=6
+      - TURNSTILE_SOLVER_URL=http://hfts:7860
+      - CF_BYPASS_SOLVER_URL=http://hfts:7860
+      - HTTPS_PROXY=http://host.docker.internal:${CLASH_PORT:-7890}
+      - HTTP_PROXY=http://host.docker.internal:${CLASH_PORT:-7890}
+      - NO_PROXY=localhost,127.0.0.1,host.docker.internal,hfkr,hfts,hfnp,hfgs,hfgm
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          memory: 128M
+    restart: unless-stopped
+
+  hfgs:
+    image: ghcr.io/xiaolajiaoyyds/regplatformm-grok:latest
+    platform: linux/amd64
+    container_name: hfgs
+    ports:
+      - "7864:7860"
+    environment:
+      - MAX_CONCURRENT=3
+      - MAX_QUEUE=6
+      - TURNSTILE_SOLVER_URL=http://hfts:7860
+      - CF_BYPASS_SOLVER_URL=http://hfts:7860
+      - HTTPS_PROXY=http://host.docker.internal:${CLASH_PORT:-7890}
+      - HTTP_PROXY=http://host.docker.internal:${CLASH_PORT:-7890}
+      - NO_PROXY=localhost,127.0.0.1,host.docker.internal,hfkr,hfts,hfnp,hfgs,hfgm
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          memory: 128M
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CF_TUNNEL_TOKEN}
+      - HTTPS_PROXY=http://host.docker.internal:${CLASH_PORT:-7890}
+      - HTTP_PROXY=http://host.docker.internal:${CLASH_PORT:-7890}
+      - NO_PROXY=localhost,127.0.0.1,host.docker.internal,hfkr,hfts,hfnp,hfgs,hfgm
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          memory: 64M
+    restart: unless-stopped

@@ -1,0 +1,17 @@
+# Mac Mini 完整镜像：Go 编译 + Alpine 运行
+FROM golang:1.25-alpine AS builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /grok-worker ./cmd/grok-worker
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates
+WORKDIR /app
+COPY --from=builder /grok-worker /app/grok-worker
+# Grok 竞速模式每任务 2 求解，默认值应匹配 hfts 线程数/2
+ENV MAX_CONCURRENT=1
+ENV MAX_QUEUE=2
+EXPOSE 7860
+ENTRYPOINT ["/app/grok-worker"]

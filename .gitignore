@@ -1,0 +1,56 @@
+# 构建产物
+bin/
+web/dist/
+web/node_modules/
+/regplatform
+/regplatform-linux
+/openai-worker
+/openai-worker-linux
+/grok-worker
+/grok-worker-linux
+/grpctest
+/server
+
+# 打包产物
+*.zip
+
+# 环境变量 & 敏感文件
+.env
+*.db
+scripts/hf_tokens.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+*.exe
+*.test
+*.out
+
+# Python
+__pycache__/
+.venv/
+*.pyc
+
+# 临时文件
+errors.log
+downloaded_files/
+
+# Cloudflare Wrangler
+.wrangler/
+
+# 工具缓存
+.omc/
+.ace-tool/
+
+# 其他
+cyber/
+open/
+web/server

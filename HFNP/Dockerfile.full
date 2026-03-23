@@ -1,0 +1,17 @@
+# Mac Mini 完整镜像：Go 编译 + Alpine 运行
+FROM golang:1.25-alpine AS builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /openai-worker ./cmd/openai-worker
+
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates
+WORKDIR /app
+COPY --from=builder /openai-worker /app/openai-worker
+# OpenAI 每任务 1 求解，默认值应匹配 hfts 线程数
+ENV MAX_CONCURRENT=2
+ENV MAX_QUEUE=4
+EXPOSE 7860
+ENTRYPOINT ["/app/openai-worker"]
